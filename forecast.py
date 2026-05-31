@@ -68,25 +68,34 @@ def score_text_color(score):
     return "#dc3545"
 
 
-def efoil_rec(score):
-    return {
-        10: "מושלם! מים שטוחים כמראה 🪞",
-        9: "מצוין — כמעט שטוח",
-        8: "מעולה — שקט מאוד",
-        7: "טוב — ציפול קל מתחיל",
-        6: "סביר — ציפול מורגש",
-        5: "גרוע — גלי",
-    }.get(score, "לא מומלץ 🚫")
+def efoil_verdict(score):
+    """Return (short label, detailed water description)."""
+    if score >= 9:
+        return "לכו לגלוש!", "פלטה — מים שטוחים כמראה, טיסה חלקה ומושלמת"
+    if score >= 8:
+        return "לכו לגלוש!", "כמעט פלטה — אדוות עדינות מאוד, טיסה חלקה"
+    if score >= 7:
+        return "גבולי-באמפי", "אדווה קלה מתחילה — ציפול מורגש, טיסה סבירה עם נקישות"
+    if score >= 6:
+        return "גבולי-באמפי", "צ'ופ מורגש — אדוות קשיחות, טיסה לא חלקה"
+    if score >= 5:
+        return "לא מומלץ", "צ'ופ קופצני — גלים קצרים ותכופים, קשה לשמור על יציבות"
+    return "לא מומלץ", "גלי ומסוער — תנאים לא ראויים לטיסה"
 
 
-def sup_rec(score):
-    return {
-        10: "מושלם! שטוח ובטוח 🧘",
-        9: "מצוין — מים רגועים",
-        8: "מעולה — שקט ובטוח",
-        7: "גבולי — תישארו קרוב לחוף",
-        6: "מסוכן — סכנת סחיפה ⚠️",
-    }.get(score, "מסוכן! אל תצאו 🚫")
+def sup_verdict(score):
+    """Return (short label, safety description)."""
+    if score >= 9:
+        return "בטוח לחלוטין", "רוח אפסית, אפס סכנת סחיפה. מתאים גם למתחילים"
+    if score >= 8:
+        return "בטוח לחלוטין", "רוח קלה מאוד, ללא סכנת סחיפה"
+    if score >= 7:
+        return "אזהרה: גבולי", "רוח מתחזקת — תישארו בטווח 100 מטר מהחוף"
+    if score >= 6:
+        return "אזהרה: גבולי", "סכנת סחיפה מתחילה — חובה להישאר צמוד לחוף"
+    if score >= 4:
+        return "סכנה: לא להיכנס", "רוח חזקה מדי לסאפ — סכנת סחיפה לעומק האגם"
+    return "סכנה: לא להיכנס!", "סכנת חיים — איסור מוחלט להיכנס למים על סאפ"
 
 
 # -- API fetch --------------------------------------------------------------
@@ -407,27 +416,90 @@ def recommend_spot(all_data, date_str):
 
 # -- HTML email builder -------------------------------------------------------
 
-def _verdict(score):
-    """Return go/no-go emoji + text."""
-    if score >= 8:
-        return "✅", "לכו!"
-    if score >= 7:
-        return "⚠️", "אפשר, זהירות"
-    if score >= 5:
-        return "❌", "לא מומלץ"
-    return "🚫", "מסוכן"
+def _spot_section(spot_name, spot_type, efoil_score, sup_score, avg_wind, avg_gust, window, is_offshore, offshore_alert):
+    """Build HTML for a single spot section."""
+    F = "font-family:Arial,sans-serif;"
+    ef_label, ef_water = efoil_verdict(efoil_score)
+    sp_label, sp_safety = sup_verdict(sup_score)
+
+    # eFoil color
+    ef_color = score_color(efoil_score)
+    ef_text_c = score_text_color(efoil_score)
+    # SUP color
+    sp_color = score_color(sup_score)
+    sp_text_c = score_text_color(sup_score)
+
+    wind_str = f"{avg_wind:.1f}" if avg_wind else "—"
+    gust_str = f"{avg_gust:.1f}" if avg_gust else "—"
+    window_str = window if window else "לא צפויה סגירה"
+
+    html = f"""
+<div style="margin:12px 0;padding:16px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;">
+  <h3 style="{F}color:#0369a1;margin:0 0 12px;font-size:16px;text-align:right;">
+    📍 {spot_name} ({spot_type})
+  </h3>
+  <div style="{F}font-size:13px;color:#475569;margin-bottom:10px;text-align:right;">
+    ⏰ <b>חלון זמן:</b> עד <b>{window_str}</b>
+  </div>
+
+  <div style="background:{ef_color};border-radius:8px;padding:12px;margin-bottom:8px;">
+    <div style="{F}font-size:14px;text-align:right;">
+      ⚡ <b>eFoil (איכות הטיסה):
+      <span style="color:{ef_text_c};font-size:18px;">{efoil_score}/10</span>
+      → {ef_label}</b>
+    </div>
+    <div style="{F}font-size:13px;color:#334155;margin-top:4px;text-align:right;">
+      <i>מצב המים:</i> {ef_water}
+    </div>
+  </div>
+
+  <div style="background:{sp_color};border-radius:8px;padding:12px;">
+    <div style="{F}font-size:14px;text-align:right;">
+      🧘 <b>SUP (מדד בטיחות):
+      <span style="color:{sp_text_c};font-size:18px;">{sup_score}/10</span>
+      → {sp_label}</b>
+    </div>
+    <div style="{F}font-size:13px;color:#334155;margin-top:4px;text-align:right;">
+      <i>בטיחות:</i> {sp_safety}
+    </div>
+  </div>
+"""
+    if is_offshore:
+        html += f"""
+  <div style="margin-top:8px;padding:10px;background:#f8d7da;border:2px solid #dc3545;border-radius:8px;{F}font-size:13px;color:#721c24;text-align:right;">
+    <b>{offshore_alert}</b>
+  </div>
+"""
+    html += "</div>\n"
+    return html
 
 
 def build_html(all_data, days):
-    """Build a clean, decision-focused HTML email."""
+    """Build HTML email in the exact per-day, per-spot format."""
 
-    # Collect per-day data for ranking
-    day_rows = []
+    confidence_labels = {0: "גבוהה", 1: "בינונית", 2: "נמוכה"}
+    F = "font-family:Arial,sans-serif;"
+
+    parts = []
+
+    # Header
+    parts.append(f"""
+<div style="background:linear-gradient(135deg,#0ea5e9,#0369a1);padding:24px;text-align:center;">
+  <div style="font-size:36px;">🌊</div>
+  <h1 style="color:#fff;margin:8px 0 0;font-size:22px;{F}">תחזית גלישה וסאפ — כנרת</h1>
+  <p style="color:#e0f2fe;margin:6px 0 0;font-size:13px;{F}">חלון בוקר 08:30–11:00 · מודלים: ECMWF + ICON + GFS</p>
+</div>
+""")
+
+    # Track best day for subject line
+    best_day_efoil, best_day_sup, best_day_name = 0, 0, ""
+
     for day_idx, date_str in enumerate(days):
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         day_heb = WEEKDAY_HEB.get(dt.weekday(), "")
+        conf = confidence_labels.get(day_idx, "נמוכה")
 
-        # Score each spot separately
+        # Score each spot
         gin_w, gin_g = morning_stats(all_data, "ginosar", date_str)
         ein_w, ein_g = morning_stats(all_data, "ein_gev", date_str)
 
@@ -436,145 +508,84 @@ def build_html(all_data, days):
         ein_efoil = score_efoil(ein_w, ein_g) if ein_w is not None else 0
         ein_sup = score_sup(ein_w, ein_g) if ein_w is not None else 0
 
-        # RULE 2: Ein Gev "death trap" — ANY offshore = SUP 3/10 max
+        # Ein Gev offshore check
         is_offshore, offshore_alert = check_ein_gev_offshore(all_data, date_str)
         if is_offshore:
-            ein_sup = min(ein_sup, 3)  # life-safety override
+            ein_sup = min(ein_sup, 3)
 
-        # Best scores across spots
+        # Window closure
+        gin_window = find_window_closure(all_data, "ginosar", date_str)
+        ein_window = find_window_closure(all_data, "ein_gev", date_str)
+
+        # General alerts
+        alerts = detect_alerts(all_data, date_str)
+
+        # Day summary
         best_efoil = max(gin_efoil, ein_efoil)
         best_sup = max(gin_sup, ein_sup)
 
-        # Best spot = whichever has higher combined score
-        if (gin_efoil + gin_sup) >= (ein_efoil + ein_sup):
-            best_spot = "גינוסר"
+        if best_efoil + best_sup > best_day_efoil + best_day_sup:
+            best_day_efoil = best_efoil
+            best_day_sup = best_sup
+            best_day_name = day_heb
+
+        # General trend text
+        if best_sup >= 8:
+            trend = "יום מצוין לגלישה וסאפ — רוח חלשה ומים שקטים"
+        elif best_sup >= 7:
+            trend = "יום סביר — רוח קלה, סאפ גבולי, eFoil בסדר"
+        elif best_efoil >= 7:
+            trend = "יום טוב ל-eFoil בלבד — רוח חזקה מדי לסאפ"
         else:
-            best_spot = "עין גב"
+            trend = "יום לא מומלץ — רוח ומשבים גבוהים מדי"
 
-        window = find_window_closure(all_data, "ginosar", date_str)
-        alerts = detect_alerts(all_data, date_str)
-
-        day_rows.append({
-            "date": date_str, "day_heb": day_heb, "day_idx": day_idx,
-            "efoil": best_efoil, "sup": best_sup, "spot": best_spot,
-            "window": window, "alerts": alerts,
-            "gin_wind": gin_w, "gin_gust": gin_g,
-            "ein_wind": ein_w, "ein_gust": ein_g,
-            "gin_efoil": gin_efoil, "gin_sup": gin_sup,
-            "ein_efoil": ein_efoil, "ein_sup": ein_sup,
-        })
-
-    # Sort by best combined score for ranking
-    ranked = sorted(day_rows, key=lambda r: r["efoil"] + r["sup"], reverse=True)
-
-    # Subject from best day
-    best = ranked[0]
-    subject = f"\U0001f30a כנרת — היום הכי טוב: יום {best['day_heb']} | eFoil {best['efoil']}/10 | SUP {best['sup']}/10"
-
-    confidence_labels = {0: "גבוהה", 1: "בינונית", 2: "נמוכה"}
-
-    parts = []
-
-    # Header
-    parts.append("""
-<div style="background:linear-gradient(135deg,#0ea5e9,#0369a1);padding:24px;text-align:center;">
-  <div style="font-size:32px;">🌊</div>
-  <h1 style="color:#fff;margin:8px 0 0;font-size:22px;font-family:Arial,sans-serif;">תחזית גלישה — כנרת</h1>
-  <p style="color:#e0f2fe;margin:6px 0 0;font-size:14px;font-family:Arial,sans-serif;">חלון בוקר 08:30–11:00 | גינוסר ועין גב</p>
-</div>
-""")
-
-    # Ranking table
-    parts.append("""
-<div style="padding:20px;">
-  <h2 style="color:#0f172a;margin:0 0 16px;font-size:18px;font-family:Arial,sans-serif;text-align:right;">📊 דירוג הימים</h2>
-  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
-""")
-
-    for rank, row in enumerate(ranked, 1):
-        ef_emoji, ef_text = _verdict(row["efoil"])
-        sp_emoji, sp_text = _verdict(row["sup"])
-
-        # Row background based on rank
-        if rank == 1:
-            row_bg = "#f0fdf4"  # green tint
-            border_color = "#22c55e"
-            medal = "🥇"
-        elif rank == 2:
-            row_bg = "#f0f9ff"
-            border_color = "#38bdf8"
-            medal = "🥈"
-        elif rank == 3:
-            row_bg = "#fefce8"
-            border_color = "#facc15"
-            medal = "🥉"
-        else:
-            row_bg = "#f8fafc"
-            border_color = "#e2e8f0"
-            medal = ""
-
-        # Window text
-        window_text = f"עד {row['window']}" if row['window'] else "כל הבוקר"
-
-        # Confidence
-        conf = confidence_labels.get(row["day_idx"], "נמוכה")
-
+        # Day section
         parts.append(f"""
-    <tr style="background:{row_bg};border-right:4px solid {border_color};">
-      <td style="padding:16px 12px;vertical-align:top;width:50px;text-align:center;">
-        <div style="font-size:24px;">{medal}</div>
-        <div style="font-size:11px;color:#94a3b8;">#{rank}</div>
-      </td>
-      <td style="padding:16px 8px;vertical-align:top;">
-        <div style="font-size:17px;font-weight:bold;color:#0f172a;margin-bottom:6px;">יום {row['day_heb']} — {row['date']}</div>
-        <table cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
-          <tr>
-            <td style="padding:3px 12px 3px 0;font-size:14px;">⚡ eFoil:</td>
-            <td style="padding:3px 0;font-size:18px;font-weight:bold;color:{score_text_color(row['efoil'])};">{row['efoil']}/10</td>
-            <td style="padding:3px 0 3px 8px;font-size:13px;">{ef_emoji} {ef_text}</td>
-          </tr>
-          <tr>
-            <td style="padding:3px 12px 3px 0;font-size:14px;">🧘 SUP:</td>
-            <td style="padding:3px 0;font-size:18px;font-weight:bold;color:{score_text_color(row['sup'])};">{row['sup']}/10</td>
-            <td style="padding:3px 0 3px 8px;font-size:13px;">{sp_emoji} {sp_text}</td>
-          </tr>
-        </table>
-        <div style="font-size:12px;color:#64748b;">
-          📍 ספוט: <b>{row['spot']}</b> · ⏰ חלון: {window_text} · 🎯 אמינות: {conf}
-        </div>
+<div style="padding:20px;border-top:3px solid #0ea5e9;">
+  <h2 style="{F}color:#0f172a;margin:0 0 4px;font-size:19px;text-align:right;">
+    📅 תחזית גלישה וסאפ ליום {day_heb} {date_str}
+  </h2>
+  <div style="{F}font-size:13px;color:#64748b;margin-bottom:4px;text-align:right;">
+    🎯 אמינות תחזית: <b>{conf}</b>
+  </div>
+  <div style="{F}font-size:14px;color:#334155;margin-bottom:16px;text-align:right;background:#f0f9ff;padding:10px;border-radius:8px;">
+    {trend}
+  </div>
 """)
 
-        # Alerts inline
-        if row["alerts"]:
-            alerts_str = " · ".join(row["alerts"])
+        # Spot 1: Ginosar
+        parts.append(_spot_section(
+            "גינוסר", "חוף מערבי",
+            gin_efoil, gin_sup, gin_w, gin_g, gin_window,
+            False, ""  # Ginosar never has offshore danger
+        ))
+
+        # Spot 2: Ein Gev
+        parts.append(_spot_section(
+            "עין גב", "חוף מזרחי",
+            ein_efoil, ein_sup, ein_w, ein_g, ein_window,
+            is_offshore, offshore_alert
+        ))
+
+        # Day-level alerts
+        if alerts:
+            alerts_html = "<br>".join(alerts)
             parts.append(f"""
-        <div style="margin-top:6px;padding:6px 10px;background:#fff3cd;border-radius:6px;font-size:12px;color:#92400e;">
-          {alerts_str}
-        </div>
+  <div style="margin-top:8px;padding:10px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;{F}font-size:13px;color:#92400e;text-align:right;">
+    <b>⚠️ התראות בטיחות:</b><br>{alerts_html}
+  </div>
 """)
 
-        parts.append("""
-      </td>
-    </tr>
-    <tr><td colspan="2" style="height:2px;background:#e2e8f0;"></td></tr>
-""")
-
-    parts.append("  </table>\n</div>\n")
-
-    # Quick legend
-    parts.append("""
-<div style="padding:12px 20px;background:#f8fafc;font-family:Arial,sans-serif;font-size:12px;color:#64748b;text-align:right;">
-  <b>מה הציונים אומרים:</b><br>
-  ⚡ eFoil = איכות מים (חלקות). 8+ = פלטה, 5-7 = ציפול, מתחת 5 = גלי<br>
-  🧘 SUP = בטיחות. 8+ = בטוח, 7 = גבולי, מתחת 7 = סכנת סחיפה<br>
-  ⏰ חלון = מתי הבריזה המערבית מגיעה (רוח 12+ קשר)
-</div>
-""")
+        parts.append("</div>\n")
 
     # Footer
-    parts.append("""
+    parts.append(f"""
+<div style="padding:12px 20px;background:#f8fafc;{F}font-size:11px;color:#94a3b8;text-align:right;">
+  ⚡ eFoil = איכות מים בלבד (משבים) · 🧘 SUP = סכנת סחיפה בלבד (רוח) · הציונים עצמאיים לחלוטין<br>
+  ⏰ חלון 11:00 = כלל בטיחות כנרת — הבריזה המערבית תמיד מגיעה לפני מה שהמודלים מראים
+</div>
 <div style="background:#1e293b;padding:14px;text-align:center;">
-  <p style="color:#94a3b8;margin:0;font-family:Arial,sans-serif;font-size:11px;">
+  <p style="color:#94a3b8;margin:0;{F}font-size:11px;">
     Kinneret Forecast Bot 🤖 · ECMWF + ICON + GFS · Open-Meteo
   </p>
 </div>
@@ -583,12 +594,14 @@ def build_html(all_data, days):
     body_html = f"""<!DOCTYPE html>
 <html dir="rtl" lang="he">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif;direction:rtl;">
+<body style="margin:0;padding:0;background:#f0f4f8;{F}direction:rtl;">
 <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.1);">
 {"".join(parts)}
 </div>
 </body>
 </html>"""
+
+    subject = f"\U0001f30a כנרת — היום הכי טוב: יום {best_day_name} | eFoil {best_day_efoil}/10 | SUP {best_day_sup}/10"
 
     return subject, body_html
 
