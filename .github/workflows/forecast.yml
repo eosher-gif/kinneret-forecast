@@ -1,7 +1,7 @@
 name: kinneret-forecast
 on:
   schedule:
-    - cron: "0 3 * * 0,4"  # 03:00 UTC = 06:00 Israel, Sunday + Thursday
+    - cron: "0 17 * * 2,6"  # 17:00 UTC = 20:00 Israel, Tuesday + Saturday
   workflow_dispatch:
 jobs:
   forecast:
