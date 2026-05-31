@@ -1,0 +1,25 @@
+name: kinneret-forecast
+
+on:
+  schedule:
+    - cron: "0 3 * * 0,4"  # 03:00 UTC = 06:00 Israel, Sunday + Thursday
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Run forecast
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          NOTIFY_TO: "eosher@nvidia.com"
+          NOTIFY_FROM: ${{ vars.NOTIFY_FROM || 'kinneret-forecast@bot.dev' }}
+        run: python forecast.py
