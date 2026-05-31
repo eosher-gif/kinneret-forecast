@@ -10,12 +10,14 @@ stdlib only -- no external dependencies.
 import json
 import os
 import smtplib
+import sys
 import time
 import urllib.request
 import urllib.error
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 
 # -- Spots -----------------------------------------------------------------
 
@@ -585,6 +587,13 @@ def main():
     print("Kinneret Surf Forecast Bot")
     print("=" * 60)
 
+    # Parse --html-out flag
+    html_out = None
+    if "--html-out" in sys.argv:
+        idx = sys.argv.index("--html-out")
+        if idx + 1 < len(sys.argv):
+            html_out = sys.argv[idx + 1]
+
     all_data = fetch_all_data()
 
     success_count = sum(
@@ -619,11 +628,18 @@ def main():
     subject, html_body = build_html(all_data, days)
     print(f"\nSubject: {subject}")
 
-    sent = send_email(subject, html_body)
+    # Write HTML to file for GitHub Actions email action
+    if html_out:
+        Path(html_out).write_text(html_body, encoding="utf-8")
+        print(f"HTML saved to {html_out}")
+        # Set subject as GitHub Actions env var
+        gh_env = os.environ.get("GITHUB_ENV")
+        if gh_env:
+            with open(gh_env, "a") as f:
+                f.write(f"EMAIL_SUBJECT={subject}\n")
 
-    if not sent:
-        print("\n[INFO] Email was not sent (SMTP not configured or failed).")
-        print("[INFO] To enable email, set these repo secrets: SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD")
+    # Also try direct SMTP if configured
+    send_email(subject, html_body)
 
     print("\nDone!")
 

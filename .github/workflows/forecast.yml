@@ -1,7 +1,7 @@
 name: kinneret-forecast
 on:
   schedule:
-    - cron: "0 3 * * 0,4"
+    - cron: "0 3 * * 0,4"  # 03:00 UTC = 06:00 Israel, Sunday + Thursday
   workflow_dispatch:
 jobs:
   forecast:
@@ -11,12 +11,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Run forecast
+        run: python forecast.py --html-out report.html
         env:
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           NOTIFY_TO: "eosher@nvidia.com"
-          NOTIFY_FROM: ${{ vars.NOTIFY_FROM || 'kinneret-forecast@bot.dev' }}
-        run: python forecast.py
+
+      - name: Send email
+        if: hashFiles('report.html') != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT || 587 }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: ${{ env.EMAIL_SUBJECT || '🌊 תחזית כנרת' }}
+          to: eosher@nvidia.com
+          from: Kinneret Forecast Bot <kinneret@forecast.bot>
+          html_body: file://report.html
+
+      - name: Upload report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-${{ github.run_id }}
+          path: report.html
+          retention-days: 7
