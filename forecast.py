@@ -225,45 +225,84 @@ def morning_stats(all_data, spot_id, date_str):
 # -- Scoring -----------------------------------------------------------------
 
 def score_efoil(avg_wind, max_gust):
-    """eFoil needs CALM flat water (electric -- doesn't need wind)."""
-    if avg_wind is None:
+    """eFoil score = water smoothness ONLY (based on gusts).
+
+    eFoil is electric — wind doesn't affect propulsion, only water chop.
+    Score is determined purely by gust level.
+    """
+    if max_gust is None:
         return 0
-    if avg_wind < 2 and max_gust < 4:
-        return 10
-    if avg_wind < 3 and max_gust < 5:
+    if max_gust < 4:
+        return 10  # glass / plata
+    if max_gust < 5:
         return 9
-    if avg_wind < 4 and max_gust < 7:
+    if max_gust < 6:
         return 8
-    if avg_wind < 5 and max_gust < 8:
-        return 7
-    if avg_wind < 7 and max_gust < 10:
+    if max_gust < 8:
+        return 7   # light chop starting
+    if max_gust < 10:
         return 6
-    if avg_wind < 9 and max_gust < 13:
-        return 5
-    return 4
+    if max_gust < 13:
+        return 5   # choppy
+    return 4        # rough
 
 
 def score_sup(avg_wind, max_gust):
-    """SUP scoring -- danger = drift + capsize."""
+    """SUP score = drifting danger ONLY (wind speed + gusts).
+
+    SUP rider acts as a human sail. Wind > 5kn or gusts > 7kn = danger.
+    """
     if avg_wind is None:
         return 0
+    # Immediate red flags
+    if avg_wind >= 6 or max_gust >= 9:
+        return 4   # dangerous
+    if avg_wind >= 5 or max_gust >= 8:
+        return 5   # dangerous
+    if avg_wind >= 4 or max_gust >= 7:
+        return 6   # risky — drift danger
+    # Safe zone
     if avg_wind < 2 and max_gust < 4:
         return 10
     if avg_wind < 3 and max_gust < 5:
         return 9
-    if avg_wind < 4 and max_gust < 6:
+    if avg_wind < 3.5 and max_gust < 6:
         return 8
-    if avg_wind < 5 and max_gust < 7:
-        return 7
-    if avg_wind < 6 and max_gust < 8:
-        return 6
-    return 5
+    return 7       # borderline
+
+
+def check_ein_gev_offshore(all_data, date_str):
+    """Check for dangerous offshore wind at Ein Gev (E/SE pushing to deep water).
+
+    Returns (is_dangerous, alert_text). If morning E/SE wind > 4kn at Ein Gev,
+    SUP score must be overridden to 5 or lower.
+    """
+    for hour in range(6, 10):  # 06:00-09:30
+        agg = aggregate_hour(all_data, "ein_gev", date_str, hour)
+        if not agg or agg["dir_avg"] is None:
+            continue
+        direction = agg["dir_avg"] % 360
+        is_east_se = 60 <= direction <= 160
+        if is_east_se and agg["wind_avg"] > 4:
+            return True, (
+                "🚨 אזהרת אופ-שור חמורה בעין גב! "
+                f"רוח {agg['wind_avg']:.0f}kn מכיוון {wind_dir_to_hebrew(direction)} "
+                "דוחפת לעומק האגם. חתירה במקביל לחוף בלבד!"
+            )
+    return False, ""
 
 
 # -- Safety & analysis -------------------------------------------------------
 
 def find_window_closure(all_data, spot_id, date_str):
-    """Find first hour when ANY model shows sustained wind > 12kn."""
+    """Find when the session window closes.
+
+    Kinneret rule: afternoon westerly winds ALWAYS drop from the mountains
+    earlier than global models predict. If models show 12+ knots arriving
+    at 13:00-14:00, override to 11:00 (11:30 max). Never tell a SUP
+    paddler the window is open past noon when afternoon winds are expected.
+    """
+    raw_closure = None
     for hour in range(6, 21):
         for model in MODELS:
             d = all_data[spot_id].get(model)
@@ -274,20 +313,31 @@ def find_window_closure(all_data, spot_id, date_str):
                 continue
             w = d["wind"][idx]
             if w is not None and w > 12:
-                return f"{hour:02d}:00"
-    return None
+                raw_closure = hour
+                break
+        if raw_closure:
+            break
+
+    if raw_closure is None:
+        return None
+
+    # THE 11:00 RULE: Kinneret briza arrives 1-2 hours earlier than models
+    # show. If models say 13:00-15:00, real closure is ~11:00-11:30.
+    if raw_closure >= 13:
+        return "11:00"
+    if raw_closure == 12:
+        return "10:30"
+    return f"{raw_closure:02d}:00"
 
 
 def detect_alerts(all_data, date_str):
     """Detect safety alerts for a given day."""
     alerts = []
 
-    # Offshore wind at Ein Gev (direction 60-120 in morning)
-    for hour in range(7, 12):
-        agg = aggregate_hour(all_data, "ein_gev", date_str, hour)
-        if agg and agg["dir_avg"] is not None and 60 <= agg["dir_avg"] <= 120 and agg["wind_avg"] > 3:
-            alerts.append("⚠️ רוח מהחוף בעין גב (מזרחית) — סכנת סחיפה לעומק!")
-            break
+    # Offshore wind at Ein Gev (E/SE pushing to deep water)
+    is_offshore, offshore_alert = check_ein_gev_offshore(all_data, date_str)
+    if is_offshore:
+        alerts.append(offshore_alert)
 
     # Rapid transition: wind jumps >8kn between consecutive hours
     for spot_id in SPOTS:
@@ -369,25 +419,32 @@ def build_html(all_data, days):
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         day_heb = WEEKDAY_HEB.get(dt.weekday(), "")
 
-        # Best scores across both spots
-        best_efoil, best_sup = 0, 0
-        best_spot = "—"
-        for spot_id in SPOTS:
-            w, g = morning_stats(all_data, spot_id, date_str)
-            if w is not None:
-                ef = score_efoil(w, g)
-                sp = score_sup(w, g)
-                if ef > best_efoil or sp > best_sup:
-                    best_spot = SPOTS[spot_id]["name"]
-                best_efoil = max(best_efoil, ef)
-                best_sup = max(best_sup, sp)
+        # Score each spot separately
+        gin_w, gin_g = morning_stats(all_data, "ginosar", date_str)
+        ein_w, ein_g = morning_stats(all_data, "ein_gev", date_str)
+
+        gin_efoil = score_efoil(gin_w, gin_g) if gin_w is not None else 0
+        gin_sup = score_sup(gin_w, gin_g) if gin_w is not None else 0
+        ein_efoil = score_efoil(ein_w, ein_g) if ein_w is not None else 0
+        ein_sup = score_sup(ein_w, ein_g) if ein_w is not None else 0
+
+        # RULE 2: SUP safety override for Ein Gev offshore
+        is_offshore, offshore_alert = check_ein_gev_offshore(all_data, date_str)
+        if is_offshore:
+            ein_sup = min(ein_sup, 5)  # cap at 5 (dangerous)
+
+        # Best scores across spots
+        best_efoil = max(gin_efoil, ein_efoil)
+        best_sup = max(gin_sup, ein_sup)
+
+        # Best spot = whichever has higher combined score
+        if (gin_efoil + gin_sup) >= (ein_efoil + ein_sup):
+            best_spot = "גינוסר"
+        else:
+            best_spot = "עין גב"
 
         window = find_window_closure(all_data, "ginosar", date_str)
         alerts = detect_alerts(all_data, date_str)
-
-        # Morning wind summary (best spot)
-        gin_w, gin_g = morning_stats(all_data, "ginosar", date_str)
-        ein_w, ein_g = morning_stats(all_data, "ein_gev", date_str)
 
         day_rows.append({
             "date": date_str, "day_heb": day_heb, "day_idx": day_idx,
@@ -395,6 +452,8 @@ def build_html(all_data, days):
             "window": window, "alerts": alerts,
             "gin_wind": gin_w, "gin_gust": gin_g,
             "ein_wind": ein_w, "ein_gust": ein_g,
+            "gin_efoil": gin_efoil, "gin_sup": gin_sup,
+            "ein_efoil": ein_efoil, "ein_sup": ein_sup,
         })
 
     # Sort by best combined score for ranking
