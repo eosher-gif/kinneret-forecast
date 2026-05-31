@@ -638,8 +638,9 @@ def main():
             with open(gh_env, "a") as f:
                 f.write(f"EMAIL_SUBJECT={subject}\n")
 
-    # Also try direct SMTP if configured
-    send_email(subject, html_body)
+    # Try direct SMTP only if not using html-out (GitHub Actions handles email)
+    if not html_out:
+        send_email(subject, html_body)
 
     print("\nDone!")
 
