@@ -248,46 +248,56 @@ def score_efoil(avg_wind, max_gust):
 
 
 def score_sup(avg_wind, max_gust):
-    """SUP score = drifting danger ONLY (wind speed + gusts).
+    """SUP score = drifting danger ONLY. LIFE-SAFETY scoring.
 
-    SUP rider acts as a human sail. Wind > 5kn or gusts > 7kn = danger.
+    SUP rider = human sail. This scoring is deliberately conservative.
+    A wrong recommendation can be life-threatening on the Kinneret.
+
+    Hard ceilings:
+    - Gusts 10+ kn → 1/10 (NO ENTRY)
+    - Wind > 5kn OR Gusts > 7kn → max 5/10
     """
     if avg_wind is None:
         return 0
-    # Immediate red flags
-    if avg_wind >= 6 or max_gust >= 9:
-        return 4   # dangerous
-    if avg_wind >= 5 or max_gust >= 8:
-        return 5   # dangerous
-    if avg_wind >= 4 or max_gust >= 7:
-        return 6   # risky — drift danger
-    # Safe zone
+    # HARD CEILING: gusts 10+ = NO ENTRY
+    if max_gust >= 10:
+        return 1
+    # HARD CEILING: wind > 5 or gusts > 7 = max 5/10
+    if avg_wind > 5 or max_gust > 7:
+        return min(5, max(1, 8 - int(avg_wind)))
+    # Below thresholds — safe zone
     if avg_wind < 2 and max_gust < 4:
         return 10
     if avg_wind < 3 and max_gust < 5:
         return 9
     if avg_wind < 3.5 and max_gust < 6:
         return 8
-    return 7       # borderline
+    if avg_wind < 4 and max_gust < 6.5:
+        return 7
+    return 6       # borderline
 
 
 def check_ein_gev_offshore(all_data, date_str):
-    """Check for dangerous offshore wind at Ein Gev (E/SE pushing to deep water).
+    """LIFE-SAFETY CHECK: Ein Gev east coast "death trap" rule.
 
-    Returns (is_dangerous, alert_text). If morning E/SE wind > 4kn at Ein Gev,
-    SUP score must be overridden to 5 or lower.
+    ANY Easterly wind component (E, SE, NE) between 06:00-11:00 at Ein Gev
+    triggers an automatic SUP score drop to 3/10 or lower.
+    The water near shore looks deceptively calm with offshore wind,
+    but a SUP paddler will be pushed to the center of the lake.
     """
-    for hour in range(6, 10):  # 06:00-09:30
+    for hour in range(6, 11):
         agg = aggregate_hour(all_data, "ein_gev", date_str, hour)
         if not agg or agg["dir_avg"] is None:
             continue
         direction = agg["dir_avg"] % 360
-        is_east_se = 60 <= direction <= 160
-        if is_east_se and agg["wind_avg"] > 4:
+        # ANY easterly component: NE (30) through SE (160)
+        is_east = 30 <= direction <= 160
+        if is_east and agg["wind_avg"] > 2:
             return True, (
-                "🚨 אזהרת אופ-שור חמורה בעין גב! "
-                f"רוח {agg['wind_avg']:.0f}kn מכיוון {wind_dir_to_hebrew(direction)} "
-                "דוחפת לעומק האגם. חתירה במקביל לחוף בלבד!"
+                "⚠️ אזהרת אופ-שור חמורה! סכנת חיים! "
+                f"רוח גב {agg['wind_avg']:.0f}kn מכיוון {wind_dir_to_hebrew(direction)} "
+                "דוחפת למרכז האגם. המים ליד החוף נראים מטעים וחלקים, "
+                "אך חל איסור מוחלט להתרחק מהחוף על סאפ!"
             )
     return False, ""
 
@@ -315,18 +325,16 @@ def find_window_closure(all_data, spot_id, date_str):
             if w is not None and w > 12:
                 raw_closure = hour
                 break
-        if raw_closure:
+        if raw_closure is not None:
             break
 
     if raw_closure is None:
         return None
 
-    # THE 11:00 RULE: Kinneret briza arrives 1-2 hours earlier than models
-    # show. If models say 13:00-15:00, real closure is ~11:00-11:30.
-    if raw_closure >= 13:
-        return "11:00"
-    if raw_closure == 12:
-        return "10:30"
+    # THE 11:00 RULE: Kinneret briza ALWAYS arrives earlier than models show.
+    # STRICTLY FORBIDDEN to show window open past 11:00 when afternoon winds expected.
+    if raw_closure >= 12:
+        return "11:00 (חובה לצאת מהמים!)"
     return f"{raw_closure:02d}:00"
 
 
@@ -428,10 +436,10 @@ def build_html(all_data, days):
         ein_efoil = score_efoil(ein_w, ein_g) if ein_w is not None else 0
         ein_sup = score_sup(ein_w, ein_g) if ein_w is not None else 0
 
-        # RULE 2: SUP safety override for Ein Gev offshore
+        # RULE 2: Ein Gev "death trap" — ANY offshore = SUP 3/10 max
         is_offshore, offshore_alert = check_ein_gev_offshore(all_data, date_str)
         if is_offshore:
-            ein_sup = min(ein_sup, 5)  # cap at 5 (dangerous)
+            ein_sup = min(ein_sup, 3)  # life-safety override
 
         # Best scores across spots
         best_efoil = max(gin_efoil, ein_efoil)
