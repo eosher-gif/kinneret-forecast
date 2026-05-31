@@ -545,7 +545,7 @@ def send_email(subject, html_body):
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
     smtp_user = os.environ.get("SMTP_USERNAME", "")
     smtp_pass = os.environ.get("SMTP_PASSWORD", "")
-    notify_to = os.environ.get("NOTIFY_TO", "eosher@nvidia.com")
+    notify_to = os.environ.get("NOTIFY_TO", "eilonosher@gmail.com")
     notify_from = os.environ.get("NOTIFY_FROM", "kinneret-forecast@bot.dev")
 
     if not all([smtp_host, smtp_user, smtp_pass]):

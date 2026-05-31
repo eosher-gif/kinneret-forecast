@@ -26,8 +26,8 @@ jobs:
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASS }}
           subject: ${{ env.EMAIL_SUBJECT || '🌊 תחזית כנרת' }}
-          to: eosher@nvidia.com
-          from: Kinneret Forecast Bot <kinneret@forecast.bot>
+          to: eilonosher@gmail.com
+          from: Kinneret Forecast Bot <eilonosher@gmail.com>
           html_body: file://report.html
 
       - name: Upload report as artifact
