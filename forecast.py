@@ -344,184 +344,167 @@ def recommend_spot(all_data, date_str):
 
 # -- HTML email builder -------------------------------------------------------
 
+def _verdict(score):
+    """Return go/no-go emoji + text."""
+    if score >= 8:
+        return "✅", "לכו!"
+    if score >= 7:
+        return "⚠️", "אפשר, זהירות"
+    if score >= 5:
+        return "❌", "לא מומלץ"
+    return "🚫", "מסוכן"
+
+
 def build_html(all_data, days):
-    """Build the full HTML email."""
-    # Overall scores (day 1, best spot)
-    best_efoil, best_sup = 0, 0
-    for spot_id in SPOTS:
-        w, g = morning_stats(all_data, spot_id, days[0])
-        if w is not None:
-            best_efoil = max(best_efoil, score_efoil(w, g))
-            best_sup = max(best_sup, score_sup(w, g))
+    """Build a clean, decision-focused HTML email."""
 
-    dt0 = datetime.strptime(days[0], "%Y-%m-%d")
-    day_name_heb = WEEKDAY_HEB.get(dt0.weekday(), "")
-
-    subject = f"\U0001f30a תחזית כנרת — {days[0]} | eFoil: {best_efoil}/10 | SUP: {best_sup}/10"
-
-    parts = []
-
-    # Header
-    parts.append(f"""
-<div style="background:linear-gradient(135deg,#0ea5e9,#0369a1);padding:28px 24px;text-align:center;">
-  <h1 style="color:#fff;margin:0;font-size:26px;font-family:Arial,sans-serif;">🏄 תחזית גלישה — כנרת</h1>
-  <p style="color:#e0f2fe;margin:8px 0 0;font-size:15px;font-family:Arial,sans-serif;">יום {day_name_heb}, {days[0]}</p>
-</div>
-""")
-
-    # Score cards
-    parts.append(f"""
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:16px;">
-<tr>
-<td width="50%" style="padding:6px;">
-  <div style="background:{score_color(best_efoil)};border-radius:12px;padding:20px;text-align:center;">
-    <div style="font-size:28px;">⚡</div>
-    <div style="font-size:14px;font-weight:bold;color:#333;font-family:Arial,sans-serif;">eFoil</div>
-    <div style="font-size:44px;font-weight:bold;color:#1a1a1a;font-family:Arial,sans-serif;">{best_efoil}/10</div>
-    <div style="font-size:13px;color:#555;font-family:Arial,sans-serif;">{efoil_rec(best_efoil)}</div>
-  </div>
-</td>
-<td width="50%" style="padding:6px;">
-  <div style="background:{score_color(best_sup)};border-radius:12px;padding:20px;text-align:center;">
-    <div style="font-size:28px;">🧘</div>
-    <div style="font-size:14px;font-weight:bold;color:#333;font-family:Arial,sans-serif;">SUP</div>
-    <div style="font-size:44px;font-weight:bold;color:#1a1a1a;font-family:Arial,sans-serif;">{best_sup}/10</div>
-    <div style="font-size:13px;color:#555;font-family:Arial,sans-serif;">{sup_rec(best_sup)}</div>
-  </div>
-</td>
-</tr>
-</table>
-""")
-
-    # Per-day sections
-    confidence_map = {0: "90%", 1: "75%", 2: "60%"}
-
+    # Collect per-day data for ranking
+    day_rows = []
     for day_idx, date_str in enumerate(days):
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         day_heb = WEEKDAY_HEB.get(dt.weekday(), "")
 
-        day_efoil, day_sup = 0, 0
+        # Best scores across both spots
+        best_efoil, best_sup = 0, 0
+        best_spot = "—"
         for spot_id in SPOTS:
             w, g = morning_stats(all_data, spot_id, date_str)
             if w is not None:
-                day_efoil = max(day_efoil, score_efoil(w, g))
-                day_sup = max(day_sup, score_sup(w, g))
+                ef = score_efoil(w, g)
+                sp = score_sup(w, g)
+                if ef > best_efoil or sp > best_sup:
+                    best_spot = SPOTS[spot_id]["name"]
+                best_efoil = max(best_efoil, ef)
+                best_sup = max(best_sup, sp)
 
         window = find_window_closure(all_data, "ginosar", date_str)
-        window_str = window if window else "לא צפוי היום"
-        spot_rec_str = recommend_spot(all_data, date_str)
         alerts = detect_alerts(all_data, date_str)
 
-        parts.append(f"""
-<div style="padding:16px;border-top:2px solid #e2e8f0;">
-  <h2 style="color:#0369a1;margin:0 0 4px;font-family:Arial,sans-serif;font-size:20px;text-align:right;">
-    יום {day_heb} — {date_str}
-  </h2>
-  <div style="font-size:13px;color:#555;margin-bottom:12px;font-family:Arial,sans-serif;text-align:right;">
-    eFoil: <b style="color:{score_text_color(day_efoil)}">{day_efoil}/10</b> |
-    SUP: <b style="color:{score_text_color(day_sup)}">{day_sup}/10</b> |
-    ביטחון: {confidence_map.get(day_idx, '60%')}
-  </div>
-""")
+        # Morning wind summary (best spot)
+        gin_w, gin_g = morning_stats(all_data, "ginosar", date_str)
+        ein_w, ein_g = morning_stats(all_data, "ein_gev", date_str)
 
-        # Per-spot hourly tables
-        for spot_id, spot in SPOTS.items():
-            sw, sg = morning_stats(all_data, spot_id, date_str)
-            sp_efoil = score_efoil(sw, sg) if sw is not None else 0
-            sp_sup = score_sup(sw, sg) if sw is not None else 0
+        day_rows.append({
+            "date": date_str, "day_heb": day_heb, "day_idx": day_idx,
+            "efoil": best_efoil, "sup": best_sup, "spot": best_spot,
+            "window": window, "alerts": alerts,
+            "gin_wind": gin_w, "gin_gust": gin_g,
+            "ein_wind": ein_w, "ein_gust": ein_g,
+        })
 
-            parts.append(f"""
-  <h3 style="color:#334155;margin:12px 0 6px;font-size:15px;font-family:Arial,sans-serif;text-align:right;">
-    📍 {spot['name']} — eFoil {sp_efoil}/10 | SUP {sp_sup}/10
-  </h3>
-  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;text-align:center;">
-    <tr style="background:#0369a1;color:#fff;">
-      <th style="padding:7px 8px;border:1px solid #dee2e6;">שעה</th>
-      <th style="padding:7px 8px;border:1px solid #dee2e6;">רוח (kn)</th>
-      <th style="padding:7px 8px;border:1px solid #dee2e6;">משבים (kn)</th>
-      <th style="padding:7px 8px;border:1px solid #dee2e6;">כיוון</th>
-      <th style="padding:7px 8px;border:1px solid #dee2e6;">טמפ׳</th>
-    </tr>
-""")
-            for row_i, hour in enumerate(range(8, 15)):
-                agg = aggregate_hour(all_data, spot_id, date_str, hour)
-                row_bg = "#f8fafc" if row_i % 2 == 0 else "#ffffff"
+    # Sort by best combined score for ranking
+    ranked = sorted(day_rows, key=lambda r: r["efoil"] + r["sup"], reverse=True)
 
-                if agg:
-                    wind_str = f"{agg['wind_avg']:.1f}"
-                    if agg["model_spread"] > 3:
-                        wind_str += f" ({agg['wind_min']:.0f}-{agg['wind_max']:.0f})"
+    # Subject from best day
+    best = ranked[0]
+    subject = f"\U0001f30a כנרת — היום הכי טוב: יום {best['day_heb']} | eFoil {best['efoil']}/10 | SUP {best['sup']}/10"
 
-                    # Color wind cell
-                    if agg["wind_avg"] < 5:
-                        w_bg = "#d4edda"
-                    elif agg["wind_avg"] < 10:
-                        w_bg = "#fff3cd"
-                    else:
-                        w_bg = "#f8d7da"
+    confidence_labels = {0: "גבוהה", 1: "בינונית", 2: "נמוכה"}
 
-                    gust_str = f"{agg['gust_max']:.1f}"
-                    dir_str = wind_dir_to_hebrew(agg["dir_avg"])
-                    temp_str = f"{agg['temp_avg']:.0f}°C" if agg["temp_avg"] is not None else "—"
-                else:
-                    wind_str = gust_str = dir_str = temp_str = "—"
-                    w_bg = row_bg
+    parts = []
 
-                parts.append(f"""    <tr style="background:{row_bg};">
-      <td style="padding:5px 8px;border:1px solid #dee2e6;font-weight:bold;">{hour:02d}:00</td>
-      <td style="padding:5px 8px;border:1px solid #dee2e6;background:{w_bg};font-weight:bold;">{wind_str}</td>
-      <td style="padding:5px 8px;border:1px solid #dee2e6;">{gust_str}</td>
-      <td style="padding:5px 8px;border:1px solid #dee2e6;">{dir_str}</td>
-      <td style="padding:5px 8px;border:1px solid #dee2e6;">{temp_str}</td>
-    </tr>
-""")
-            parts.append("  </table>\n")
-
-        # Window closure + spot recommendation
-        parts.append(f"""
-  <div style="margin-top:10px;font-family:Arial,sans-serif;font-size:14px;text-align:right;">
-    <p style="margin:4px 0;">🕐 <b>חלון סגירה:</b> {window_str} — בריזה מערבית דרך מצוק ארבל</p>
-    <p style="margin:4px 0;">📍 <b>ספוט מומלץ:</b> {spot_rec_str}</p>
-  </div>
-""")
-
-        # Safety alerts
-        if alerts:
-            alerts_html = "<br>".join(alerts)
-            parts.append(f"""
-  <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px;margin-top:10px;font-family:Arial,sans-serif;font-size:13px;text-align:right;">
-    <b>התראות בטיחות:</b><br>{alerts_html}
-  </div>
-""")
-
-        parts.append("</div>\n")
-
-    # Model confidence
-    confidences = [
-        ("היום", 90, "#28a745"),
-        ("מחר", 75, "#ffc107"),
-        ("מחרתיים", 60, "#dc3545"),
-    ]
+    # Header
     parts.append("""
-<div style="padding:16px;border-top:2px solid #e2e8f0;">
-  <h3 style="color:#334155;margin:0 0 10px;font-family:Arial,sans-serif;text-align:right;">📊 אמינות המודלים</h3>
+<div style="background:linear-gradient(135deg,#0ea5e9,#0369a1);padding:24px;text-align:center;">
+  <div style="font-size:32px;">🌊</div>
+  <h1 style="color:#fff;margin:8px 0 0;font-size:22px;font-family:Arial,sans-serif;">תחזית גלישה — כנרת</h1>
+  <p style="color:#e0f2fe;margin:6px 0 0;font-size:14px;font-family:Arial,sans-serif;">חלון בוקר 08:30–11:00 | גינוסר ועין גב</p>
+</div>
 """)
-    for label, pct, color in confidences:
+
+    # Ranking table
+    parts.append("""
+<div style="padding:20px;">
+  <h2 style="color:#0f172a;margin:0 0 16px;font-size:18px;font-family:Arial,sans-serif;text-align:right;">📊 דירוג הימים</h2>
+  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
+""")
+
+    for rank, row in enumerate(ranked, 1):
+        ef_emoji, ef_text = _verdict(row["efoil"])
+        sp_emoji, sp_text = _verdict(row["sup"])
+
+        # Row background based on rank
+        if rank == 1:
+            row_bg = "#f0fdf4"  # green tint
+            border_color = "#22c55e"
+            medal = "🥇"
+        elif rank == 2:
+            row_bg = "#f0f9ff"
+            border_color = "#38bdf8"
+            medal = "🥈"
+        elif rank == 3:
+            row_bg = "#fefce8"
+            border_color = "#facc15"
+            medal = "🥉"
+        else:
+            row_bg = "#f8fafc"
+            border_color = "#e2e8f0"
+            medal = ""
+
+        # Window text
+        window_text = f"עד {row['window']}" if row['window'] else "כל הבוקר"
+
+        # Confidence
+        conf = confidence_labels.get(row["day_idx"], "נמוכה")
+
         parts.append(f"""
-  <div style="margin:6px 0;font-family:Arial,sans-serif;font-size:13px;text-align:right;">
-    <span style="display:inline-block;width:60px;">{label}</span>
-    <div style="display:inline-block;width:calc(100% - 120px);background:#e9ecef;border-radius:4px;height:18px;vertical-align:middle;">
-      <div style="width:{pct}%;background:{color};border-radius:4px;height:18px;text-align:center;color:white;font-size:11px;line-height:18px;">{pct}%</div>
-    </div>
-  </div>
+    <tr style="background:{row_bg};border-right:4px solid {border_color};">
+      <td style="padding:16px 12px;vertical-align:top;width:50px;text-align:center;">
+        <div style="font-size:24px;">{medal}</div>
+        <div style="font-size:11px;color:#94a3b8;">#{rank}</div>
+      </td>
+      <td style="padding:16px 8px;vertical-align:top;">
+        <div style="font-size:17px;font-weight:bold;color:#0f172a;margin-bottom:6px;">יום {row['day_heb']} — {row['date']}</div>
+        <table cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+          <tr>
+            <td style="padding:3px 12px 3px 0;font-size:14px;">⚡ eFoil:</td>
+            <td style="padding:3px 0;font-size:18px;font-weight:bold;color:{score_text_color(row['efoil'])};">{row['efoil']}/10</td>
+            <td style="padding:3px 0 3px 8px;font-size:13px;">{ef_emoji} {ef_text}</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 12px 3px 0;font-size:14px;">🧘 SUP:</td>
+            <td style="padding:3px 0;font-size:18px;font-weight:bold;color:{score_text_color(row['sup'])};">{row['sup']}/10</td>
+            <td style="padding:3px 0 3px 8px;font-size:13px;">{sp_emoji} {sp_text}</td>
+          </tr>
+        </table>
+        <div style="font-size:12px;color:#64748b;">
+          📍 ספוט: <b>{row['spot']}</b> · ⏰ חלון: {window_text} · 🎯 אמינות: {conf}
+        </div>
 """)
-    parts.append("</div>\n")
+
+        # Alerts inline
+        if row["alerts"]:
+            alerts_str = " · ".join(row["alerts"])
+            parts.append(f"""
+        <div style="margin-top:6px;padding:6px 10px;background:#fff3cd;border-radius:6px;font-size:12px;color:#92400e;">
+          {alerts_str}
+        </div>
+""")
+
+        parts.append("""
+      </td>
+    </tr>
+    <tr><td colspan="2" style="height:2px;background:#e2e8f0;"></td></tr>
+""")
+
+    parts.append("  </table>\n</div>\n")
+
+    # Quick legend
+    parts.append("""
+<div style="padding:12px 20px;background:#f8fafc;font-family:Arial,sans-serif;font-size:12px;color:#64748b;text-align:right;">
+  <b>מה הציונים אומרים:</b><br>
+  ⚡ eFoil = איכות מים (חלקות). 8+ = פלטה, 5-7 = ציפול, מתחת 5 = גלי<br>
+  🧘 SUP = בטיחות. 8+ = בטוח, 7 = גבולי, מתחת 7 = סכנת סחיפה<br>
+  ⏰ חלון = מתי הבריזה המערבית מגיעה (רוח 12+ קשר)
+</div>
+""")
 
     # Footer
     parts.append("""
-<div style="background:#1e293b;padding:16px;text-align:center;">
-  <p style="color:#94a3b8;margin:4px 0;font-family:Arial,sans-serif;font-size:12px;">נשלח אוטומטית ע"י Kinneret Forecast Bot 🤖</p>
-  <p style="color:#64748b;margin:4px 0;font-family:Arial,sans-serif;font-size:11px;">Open-Meteo API | ECMWF + ICON + GFS</p>
+<div style="background:#1e293b;padding:14px;text-align:center;">
+  <p style="color:#94a3b8;margin:0;font-family:Arial,sans-serif;font-size:11px;">
+    Kinneret Forecast Bot 🤖 · ECMWF + ICON + GFS · Open-Meteo
+  </p>
 </div>
 """)
 
