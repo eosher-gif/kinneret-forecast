@@ -205,13 +205,18 @@ def aggregate_hour(all_data, spot_id, date_str, hour):
 
 
 def morning_stats(all_data, spot_id, date_str):
-    """Get average wind and max gusts for 08:00-11:00 window."""
+    """Get average wind and average gusts for 08:00-10:00 session window.
+
+    Uses AVERAGE gusts (not max) across models and hours, because taking
+    the single worst gust from any model is too conservative for the Kinneret
+    where models disagree significantly due to low resolution.
+    """
     winds, gusts_list = [], []
-    for hour in range(8, 12):
+    for hour in range(8, 11):  # 08:00, 09:00, 10:00 — entry at 08:30
         agg = aggregate_hour(all_data, spot_id, date_str, hour)
         if agg:
             winds.append(agg["wind_avg"])
-            gusts_list.append(agg["gust_max"])
+            gusts_list.append(agg["gust_avg"])  # average gusts, not max
     if not winds:
         return None, None
     return sum(winds) / len(winds), max(gusts_list)
